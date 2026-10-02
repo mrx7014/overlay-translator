@@ -1,16 +1,12 @@
 name: Release
 
 # 触发条件：推送 v 前缀的 tag。例如 `git tag v0.2.0 && git push origin v0.2.0`。
-# 也可以在 GitHub Actions 页手动跑（workflow_dispatch），指定 tag 名。
+# 也可以在 GitHub Actions 页手动跑；手动运行时直接构建当前分支，不要求 tag。
 on:
   push:
     tags:
       - 'v*'
   workflow_dispatch:
-    inputs:
-      tag:
-        description: 'Tag name to release (e.g. v0.2.0)'
-        required: true
 
 permissions:
   contents: write  # 创建 GitHub Release / 上传 assets 需要
@@ -24,7 +20,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.tag || github.ref }}
           fetch-depth: 0
           submodules: recursive
 
@@ -70,18 +65,27 @@ jobs:
             exit 1
           fi
           VERSION=${GITHUB_REF_NAME#v}
-          [ "$GITHUB_REF_NAME" = "$VERSION" ] && VERSION="${{ github.event.inputs.tag }}"
           NEW_NAME="ScreenTranslator-${VERSION}.apk"
           cp "$APK_PATH" "$NEW_NAME"
           sha256sum "$NEW_NAME" > "$NEW_NAME.sha256"
           echo "apk_path=$NEW_NAME" >> "$GITHUB_OUTPUT"
           echo "apk_sha=$NEW_NAME.sha256" >> "$GITHUB_OUTPUT"
 
+      - name: Upload release APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ScreenTranslator-${{ github.ref_name }}
+          path: |
+            ${{ steps.apk.outputs.apk_path }}
+            ${{ steps.apk.outputs.apk_sha }}
+          if-no-files-found: error
+
       - name: Create GitHub Release
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
-          name: ${{ github.event.inputs.tag || github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
           generate_release_notes: true
           files: |
             ${{ steps.apk.outputs.apk_path }}
