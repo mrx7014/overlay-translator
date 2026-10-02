@@ -1,0 +1,236 @@
+[1mdiff --git a/app/src/main/java/com/gameocr/app/glossary/OfflineGlossaryProtection.kt b/app/src/main/java/com/gameocr/app/glossary/OfflineGlossaryProtection.kt[m
+[1mnew file mode 100644[m
+[1mindex 0000000..20b8e10[m
+[1m--- /dev/null[m
+[1m+++ b/app/src/main/java/com/gameocr/app/glossary/OfflineGlossaryProtection.kt[m
+[36m@@ -0,0 +1,44 @@[m
+[32m+[m[32mpackage com.gameocr.app.glossary[m
+[32m+[m
+[32m+[m[32m/**[m
+[32m+[m[32m * Protects glossary matches from an offline machine translator that cannot consume prompt context.[m
+[32m+[m[32m * The marker is intentionally an unlikely ASCII token because ML Kit preserves unknown tokens.[m
+[32m+[m[32m */[m
+[32m+[m[32mdata class ProtectedGlossaryText([m
+[32m+[m[32m    val text: String,[m
+[32m+[m[32m    private val replacements: Map<String, String>,[m
+[32m+[m[32m) {[m
+[32m+[m[32m    fun restore(translated: String): String {[m
+[32m+[m[32m        var restored = translated[m
+[32m+[m[32m        replacements.forEach { (marker, target) ->[m
+[32m+[m[32m            restored = restored.replace(marker, target, ignoreCase = true)[m
+[32m+[m[32m        }[m
+[32m+[m[32m        return restored[m
+[32m+[m[32m    }[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mobject OfflineGlossaryProtection {[m
+[32m+[m[32m    fun protect(source: String, matches: List<GlossaryMatch>): ProtectedGlossaryText {[m
+[32m+[m[32m        if (source.isBlank() || matches.isEmpty()) {[m
+[32m+[m[32m            return ProtectedGlossaryText(source, emptyMap())[m
+[32m+[m[32m        }[m
+[32m+[m[32m        var protected = source[m
+[32m+[m[32m        val replacements = linkedMapOf<String, String>()[m
+[32m+[m[32m        matches.forEachIndexed { index, match ->[m
+[32m+[m[32m            val marker = "__GLOSSARY_TERM_${index}__"[m
+[32m+[m[32m            val replaced = if (match.sourceTerm.isNotBlank()) {[m
+[32m+[m[32m                protected.replace([m
+[32m+[m[32m                    Regex(Regex.escape(match.sourceTerm), RegexOption.IGNORE_CASE),[m
+[32m+[m[32m                    marker,[m
+[32m+[m[32m                )[m
+[32m+[m[32m            } else {[m
+[32m+[m[32m                protected[m
+[32m+[m[32m            }[m
+[32m+[m[32m            if (replaced != protected) {[m
+[32m+[m[32m                protected = replaced[m
+[32m+[m[32m                replacements[marker] = match.targetTerm[m
+[32m+[m[32m            }[m
+[32m+[m[32m        }[m
+[32m+[m[32m        return ProtectedGlossaryText(protected, replacements)[m
+[32m+[m[32m    }[m
+[32m+[m[32m}[m
+[1mdiff --git a/app/src/main/java/com/gameocr/app/glossary/TranslationContextResolver.kt b/app/src/main/java/com/gameocr/app/glossary/TranslationContextResolver.kt[m
+[1mindex ff58a81..2a4fa8a 100644[m
+[1m--- a/app/src/main/java/com/gameocr/app/glossary/TranslationContextResolver.kt[m
+[1m+++ b/app/src/main/java/com/gameocr/app/glossary/TranslationContextResolver.kt[m
+[36m@@ -141,4 +141,29 @@[m [mclass TranslationContextResolver @Inject constructor([m
+             ),[m
+         )[m
+     }[m
+[32m+[m
+[32m+[m[32m    /**[m
+[32m+[m[32m     * Returns matching terms even for plain/offline translators. Those engines cannot receive[m
+[32m+[m[32m     * prompt context, so the caller can protect the source terms and restore their preferred[m
+[32m+[m[32m     * translations after the engine returns.[m
+[32m+[m[32m     */[m
+[32m+[m[32m    suspend fun matchingTermsForOfflineTranslation([m
+[32m+[m[32m        source: String,[m
+[32m+[m[32m        settings: Settings,[m
+[32m+[m[32m    ): List<GlossaryMatch> {[m
+[32m+[m[32m        if (!settings.translationGlossaryEnabled || source.isBlank()) return emptyList()[m
+[32m+[m[32m        val explicitScope = settings.runtimeTranslationScopePackage[m
+[32m+[m[32m        val app = if (explicitScope == null) {[m
+[32m+[m[32m            foregroundAppResolver.resolve(settings.foregroundAppDetectionMode)[m
+[32m+[m[32m        } else {[m
+[32m+[m[32m            null[m
+[32m+[m[32m        }[m
+[32m+[m[32m        val packageName = explicitScope ?: app?.packageName[m
+[32m+[m[32m        return glossaryRepository.matchingTerms([m
+[32m+[m[32m            source = source,[m
+[32m+[m[32m            sourceLang = settings.sourceLang,[m
+[32m+[m[32m            targetLang = settings.targetLang,[m
+[32m+[m[32m            packageName = packageName?.takeIf(String::isNotBlank),[m
+[32m+[m[32m        )[m
+[32m+[m[32m    }[m
+ }[m
+[1mdiff --git a/app/src/main/java/com/gameocr/app/translate/RoutingTranslator.kt b/app/src/main/java/com/gameocr/app/translate/RoutingTranslator.kt[m
+[1mindex 1ddc1d1..638c03b 100644[m
+[1m--- a/app/src/main/java/com/gameocr/app/translate/RoutingTranslator.kt[m
+[1m+++ b/app/src/main/java/com/gameocr/app/translate/RoutingTranslator.kt[m
+[36m@@ -4,6 +4,8 @@[m [mimport android.graphics.Bitmap[m
+ import android.os.SystemClock[m
+ import com.gameocr.app.data.Settings[m
+ import com.gameocr.app.data.TranslatorEngine[m
+[32m+[m[32mimport com.gameocr.app.glossary.OfflineGlossaryProtection[m
+[32m+[m[32mimport com.gameocr.app.glossary.ProtectedGlossaryText[m
+ import com.gameocr.app.glossary.TranslationContextResolver[m
+ import com.gameocr.app.llm.LlamaEngineHolder[m
+ import com.gameocr.app.ocr.TextBlock[m
+[36m@@ -48,8 +50,9 @@[m [mclass RoutingTranslator @Inject constructor([m
+             return source[m
+         }[m
+         val enriched = translationContextResolver.enrich(source, settings)[m
+[32m+[m[32m        val protectedSource = protectForOfflineEngine(source, enriched)[m
+         val startedAt = SystemClock.elapsedRealtime()[m
+[31m-        val translated = engineFor(enriched).translate(source, enriched)[m
+[32m+[m[32m        val translated = engineFor(enriched).translate(protectedSource.text, enriched)[m
+         performanceDiagnostics.observe([m
+             stage = RuntimePerformanceStage.TRANSLATION,[m
+             operationKey = RuntimePerformanceKeyPolicy.text([m
+[36m@@ -60,7 +63,7 @@[m [mclass RoutingTranslator @Inject constructor([m
+             elapsedMs = (SystemClock.elapsedRealtime() - startedAt).coerceAtLeast(0L),[m
+         )[m
+         return normalizeText([m
+[31m-            text = translated,[m
+[32m+[m[32m            text = translated?.let(protectedSource::restore),[m
+             settings = enriched,[m
+             stage = "translate"[m
+         )[m
+[36m@@ -79,10 +82,11 @@[m [mclass RoutingTranslator @Inject constructor([m
+                 return@flow[m
+             }[m
+             val enriched = translationContextResolver.enrich(source, settings)[m
+[32m+[m[32m            val protectedSource = protectForOfflineEngine(source, enriched)[m
+             val startedAt = SystemClock.elapsedRealtime()[m
+             var completed = false[m
+             try {[m
+[31m-                emitAll(engineFor(enriched).translateStream(source, enriched))[m
+[32m+[m[32m                emitAll(engineFor(enriched).translateStream(protectedSource.text, enriched).map(protectedSource::restore))[m
+                 completed = true[m
+             } finally {[m
+                 if (completed) {[m
+[36m@@ -209,12 +213,15 @@[m [mclass RoutingTranslator @Inject constructor([m
+             return mergedResults[m
+         }[m
+ [m
+[32m+[m[32m        val protectedSources = passthroughPlan.translatableSources.map {[m
+[32m+[m[32m            protectForOfflineEngine(it, settings)[m
+[32m+[m[32m        }[m
+         val enriched = translationContextResolver.enrich([m
+[31m-            passthroughPlan.translatableSources.joinToString("\n"),[m
+[32m+[m[32m            protectedSources.joinToString("\n") { it.text },[m
+             settings,[m
+         )[m
+         val rawResults = engineFor(enriched).translateBatchIncremental([m
+[31m-            passthroughPlan.translatableSources,[m
+[32m+[m[32m            protectedSources.map(ProtectedGlossaryText::text),[m
+             enriched,[m
+         ) { update ->[m
+             passthroughPlan.originalIndexFor(update.index)?.let { pendingIndex ->[m
+[36m@@ -222,14 +229,18 @@[m [mclass RoutingTranslator @Inject constructor([m
+                 onUpdate([m
+                     update.copy([m
+                         index = originalIndex,[m
+[31m-                        text = update.text?.let { normalizePlain(it, enriched) },[m
+[32m+[m[32m                        text = update.text[m
+[32m+[m[32m                            ?.let { protectedSources.getOrNull(update.index)?.restore(it) ?: it }[m
+[32m+[m[32m                            ?.let { normalizePlain(it, enriched) },[m
+                     )[m
+                 )[m
+                 }[m
+             }[m
+         }[m
+         val normalizedResults = normalizeBatch([m
+[31m-            texts = rawResults,[m
+[32m+[m[32m            texts = rawResults.mapIndexed { index, text ->[m
+[32m+[m[32m                text?.let { protectedSources.getOrNull(index)?.restore(it) ?: it }[m
+[32m+[m[32m            },[m
+             settings = enriched,[m
+             stage = "batch"[m
+         )[m
+[36m@@ -435,6 +446,17 @@[m [mclass RoutingTranslator @Inject constructor([m
+     private fun normalizePlain(text: String, settings: Settings): String =[m
+         ChineseScriptNormalizer.normalizeForTarget(text, settings.targetLang)[m
+ [m
+[32m+[m[32m    private suspend fun protectForOfflineEngine([m
+[32m+[m[32m        source: String,[m
+[32m+[m[32m        settings: Settings,[m
+[32m+[m[32m    ): ProtectedGlossaryText {[m
+[32m+[m[32m        if (engineFor(settings) !== googleMlKit) {[m
+[32m+[m[32m            return ProtectedGlossaryText(source, emptyMap())[m
+[32m+[m[32m        }[m
+[32m+[m[32m        val matches = translationContextResolver.matchingTermsForOfflineTranslation(source, settings)[m
+[32m+[m[32m        return OfflineGlossaryProtection.protect(source, matches)[m
+[32m+[m[32m    }[m
+[32m+[m
+     private fun logNormalization([m
+         stage: String,[m
+         targetLang: String,[m
+[1mdiff --git a/app/src/test/java/com/gameocr/app/glossary/OfflineGlossaryProtectionTest.kt b/app/src/test/java/com/gameocr/app/glossary/OfflineGlossaryProtectionTest.kt[m
+[1mnew file mode 100644[m
+[1mindex 0000000..7653de6[m
+[1m--- /dev/null[m
+[1m+++ b/app/src/test/java/com/gameocr/app/glossary/OfflineGlossaryProtectionTest.kt[m
+[36m@@ -0,0 +1,43 @@[m
+[32m+[m[32mpackage com.gameocr.app.glossary[m
+[32m+[m
+[32m+[m[32mimport org.junit.Assert.assertEquals[m
+[32m+[m[32mimport org.junit.Test[m
+[32m+[m
+[32m+[m[32mclass OfflineGlossaryProtectionTest {[m
+[32m+[m[32m    @Test[m
+[32m+[m[32m    fun protects_and_restores_scientific_terms() {[m
+[32m+[m[32m        val protected = OfflineGlossaryProtection.protect([m
+[32m+[m[32m            "Solve the inequalities and find the derivative.",[m
+[32m+[m[32m            listOf([m
+[32m+[m[32m                match("inequalities", "المتباينات"),[m
+[32m+[m[32m                match("derivative", "المشتقة"),[m
+[32m+[m[32m            ),[m
+[32m+[m[32m        )[m
+[32m+[m
+[32m+[m[32m        assertEquals([m
+[32m+[m[32m            "Solve the __GLOSSARY_TERM_0__ and find the __GLOSSARY_TERM_1__.",[m
+[32m+[m[32m            protected.text,[m
+[32m+[m[32m        )[m
+[32m+[m[32m        assertEquals([m
+[32m+[m[32m            "حل المتباينات وإيجاد المشتقة.",[m
+[32m+[m[32m            protected.restore("حل __GLOSSARY_TERM_0__ وإيجاد __GLOSSARY_TERM_1__.")[m
+[32m+[m[32m        )[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    @Test[m
+[32m+[m[32m    fun leaves_unmatched_source_unchanged() {[m
+[32m+[m[32m        val protected = OfflineGlossaryProtection.protect([m
+[32m+[m[32m            "The equation is simple.",[m
+[32m+[m[32m            listOf(match("inequality", "متباينة")),[m
+[32m+[m[32m        )[m
+[32m+[m[32m        assertEquals("The equation is simple.", protected.text)[m
+[32m+[m[32m        assertEquals("المعادلة بسيطة.", protected.restore("المعادلة بسيطة."))[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    private fun match(source: String, target: String) = GlossaryMatch([m
+[32m+[m[32m        sourceTerm = source,[m
+[32m+[m[32m        targetTerm = target,[m
+[32m+[m[32m        category = GlossaryTermCategory.TERM,[m
+[32m+[m[32m        appSpecific = false,[m
+[32m+[m[32m    )[m
+[32m+[m[32m}[m
