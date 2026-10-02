@@ -37,6 +37,7 @@ jobs:
         run: gradle wrapper --gradle-version 8.10.2
 
       - name: Decode release keystore
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
         env:
           KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
         run: |
@@ -53,15 +54,24 @@ jobs:
           RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
-        run: ./gradlew --no-daemon clean assembleRelease
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "push" ] && [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            ./gradlew --no-daemon clean assembleRelease
+          else
+            ./gradlew --no-daemon clean assembleDebug
+          fi
 
       - name: Locate APK
         id: apk
         run: |
-          APK_PATH=$(find app/build/outputs/apk/release -name '*.apk' ! -name '*unsigned*' | head -n1)
+          if [ "$GITHUB_EVENT_NAME" = "push" ] && [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            APK_PATH=$(find app/build/outputs/apk/release -name '*.apk' ! -name '*unsigned*' | head -n1)
+          else
+            APK_PATH="app/build/outputs/apk/debug/app-debug.apk"
+          fi
           if [ -z "$APK_PATH" ]; then
-            echo "::error::No signed release APK found"
-            ls -la app/build/outputs/apk/release || true
+            echo "::error::No APK found"
+            find app/build/outputs/apk -maxdepth 3 -type f -print || true
             exit 1
           fi
           VERSION=${GITHUB_REF_NAME#v}
