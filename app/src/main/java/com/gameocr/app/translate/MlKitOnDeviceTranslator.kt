@@ -86,6 +86,7 @@ class MlKitOnDeviceTranslator @Inject constructor(
     private val downloadedLanguageProvider: MlKitDownloadedLanguageProvider,
     private val modelDeleter: MlKitLanguageModelDeleter,
     private val cache: TranslationCache,
+    private val glossaryPostProcessor: MlKitGlossaryPostProcessor,
 ) : Translator {
     override val prefersBatch: Boolean = true
 
@@ -110,7 +111,9 @@ class MlKitOnDeviceTranslator @Inject constructor(
             return text
         }
 
-        val translated = translateWithClient(text, sourceLanguage, targetLanguage)
+        val translated = glossaryPostProcessor.translateWithGlossary(text, settings) {
+            translateWithClient(it, sourceLanguage, targetLanguage)
+        }
         if (translated.isBlank()) {
             throw TranslationException("ML Kit 返回了空译文")
         }
