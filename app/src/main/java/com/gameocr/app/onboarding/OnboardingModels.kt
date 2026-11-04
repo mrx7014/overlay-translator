@@ -142,6 +142,14 @@ enum class CloudProvider(
         baseUrl = "https://api.scnet.cn/api/llm/v1/",
         sortName = "SCNet",
     ),
+    SILICONFLOW_CN(
+        displayName = "SiliconFlow CN",
+        baseUrl = "https://api.siliconflow.cn/v1/",
+    ),
+    SILICONFLOW(
+        displayName = "SiliconFlow",
+        baseUrl = "https://api.siliconflow.com/v1/",
+    ),
     CUSTOM(
         displayName = "Custom",
         baseUrl = "",
@@ -349,6 +357,9 @@ object OnboardingPolicy {
             recommendedOcrEngine(draft) == OcrEngineKind.MANGA_OCR_JA ->
                 PaddleModelVersion.V6_SMALL
             recommendedOcrEngine(draft) == OcrEngineKind.PADDLE_ONNX &&
+                OcrLanguageCapability.preferredPaddleModelVersion(draft.sourceLang) != null ->
+                OcrLanguageCapability.preferredPaddleModelVersion(draft.sourceLang)
+            recommendedOcrEngine(draft) == OcrEngineKind.PADDLE_ONNX &&
                 supportsPaddleV5Korean(draft.sourceLang) ->
                 PaddleModelVersion.V5_KOREAN
             recommendedOcrEngine(draft) == OcrEngineKind.PADDLE_ONNX ->
@@ -399,7 +410,10 @@ object OnboardingPolicy {
         )
     }
 
-    fun fromSettings(settings: Settings): OnboardingDraft {
+    fun fromSettings(
+        settings: Settings,
+        usageHint: OnboardingUsage? = null,
+    ): OnboardingDraft {
         val protocol = if (settings.translatorEngine == TranslatorEngine.ANTHROPIC) {
             CloudApiProtocol.ANTHROPIC
         } else {
@@ -437,7 +451,7 @@ object OnboardingPolicy {
                     OnboardingDisplayMode.ADAPTIVE_OVERLAY
                 else -> OnboardingDisplayMode.BELOW_SOURCE
             },
-            usage = if (
+            usage = usageHint ?: if (
                 settings.ocrEngine == OcrEngineKind.MANGA_OCR_JA ||
                 settings.translatorEngine == TranslatorEngine.LOCAL_SAKURA ||
                 (
@@ -464,6 +478,8 @@ object OnboardingPolicy {
                     TranslatorEngine.GOOGLE_ML_KIT,
                     TranslatorEngine.LOCAL_SAKURA,
                     TranslatorEngine.LOCAL_HY_MT2,
+                TranslatorEngine.LOCAL_INDEX_TRANSLATE,
+                TranslatorEngine.LOCAL_QWEN3,
                 )
             ) {
                 OnboardingTranslationMethod.OFFLINE
@@ -507,6 +523,7 @@ object OnboardingPolicy {
             )
         }
         var next = settings.copy(
+            openAiProvider = com.gameocr.app.data.OpenAiProvider.CUSTOM,
             sourceLang = draft.sourceLang,
             targetLang = draft.targetLang,
             renderMode = displaySettings.first,
@@ -548,7 +565,8 @@ object OnboardingPolicy {
             }
         }
         if (draft.usage == OnboardingUsage.MANGA) {
-            val mergeNonJapaneseText = !isJapaneseSourceLanguage(draft.sourceLang)
+            val mergeAdjacentText = !(isJapaneseSourceLanguage(draft.sourceLang) &&
+                draft.targetLang == "zh-CN")
             val output = when (draft.mangaDirection) {
                 OnboardingMangaDirection.FOLLOW_RECOGNITION -> Triple(
                     true,
@@ -570,8 +588,8 @@ object OnboardingPolicy {
                 renderMode = RenderMode.BLOCKS,
                 overlayStyleMode = OverlayStyleMode.ADAPTIVE,
                 overlayPlacement = OverlayPlacement.OVERLAP,
-                mergeAdjacentBlocks = mergeNonJapaneseText,
-                mergeStrength = if (mergeNonJapaneseText) {
+                mergeAdjacentBlocks = mergeAdjacentText,
+                mergeStrength = if (mergeAdjacentText) {
                     MergeStrength.STANDARD
                 } else {
                     next.mergeStrength
@@ -582,7 +600,8 @@ object OnboardingPolicy {
             )
         } else {
             next = next.copy(
-                mergeAdjacentBlocks = false,
+                mergeAdjacentBlocks = true,
+                mergeStrength = MergeStrength.STANDARD,
                 translationOutputFollowRecognition = true,
                 translationOutputLayout = TranslationOutputLayout.FOLLOW_RECOGNITION,
                 translationOutputDirection = TranslationOutputDirection.FOLLOW_RECOGNITION,

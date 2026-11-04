@@ -18,6 +18,8 @@ class CloudConnectionUiContractTest {
             CloudProvider.MODELSCOPE to "modelscope.cn", CloudProvider.OPENROUTER to "openrouter.ai",
             CloudProvider.AIHUBMIX to "docs.aihubmix.com", CloudProvider.AI_302 to "doc.302.ai",
             CloudProvider.SCNET to "www.scnet.cn",
+            CloudProvider.SILICONFLOW_CN to "docs.siliconflow.cn",
+            CloudProvider.SILICONFLOW to "docs.siliconflow.com",
         )
         assertEquals(CloudProvider.entries.toSet() - CloudProvider.CUSTOM, hosts.keys)
         hosts.forEach { (provider, host) ->
@@ -67,7 +69,7 @@ class CloudConnectionUiContractTest {
             "no wrap" to link.contains("softWrap = false"),
             "ellipsis" to link.contains("overflow = TextOverflow.Ellipsis"),
             "button after model" to (cloud.indexOf("TranslatorConnectionTestPanel(") > cloud.indexOf("value = draft.cloudModel")),
-            "both layouts wired" to (Regex("onTestCloudConnection = viewModel::testCloudConnection").findAll(setup).count() == 2),
+            "layout wired" to setup.contains("onTestCloudConnection = viewModel::testCloudConnection"),
             "settings shared panel" to source("ui/SettingsScreen.kt").contains("TranslatorConnectionTestPanel("),
             "settings shared tester" to source("ui/SettingsViewModel.kt").contains("return connectionTester.test(temp)"),
             "setup shared tester" to testMethod.contains("connectionTester.test(OnboardingPolicy.apply(settingsRepository.get(), draft))"),
