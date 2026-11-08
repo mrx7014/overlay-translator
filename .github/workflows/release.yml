@@ -49,17 +49,17 @@ jobs:
           echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/keystore/release.jks"
           echo "RELEASE_KEYSTORE_PATH=$RUNNER_TEMP/keystore/release.jks" >> "$GITHUB_ENV"
 
-	      - name: Build release APK
-	        env:
-	          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
-	          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
-	          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
-	        run: |
-	          if [ "$GITHUB_EVENT_NAME" = "push" ] && [[ "$GITHUB_REF" == refs/tags/* ]]; then
-	            bash ./gradlew --no-daemon clean assembleRelease
-	          else
-	            bash ./gradlew --no-daemon clean assembleDebug
-	          fi
+      - name: Build release APK
+        env:
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "push" ] && [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            bash ./gradlew --no-daemon clean assembleRelease
+          else
+            bash ./gradlew --no-daemon clean assembleDebug
+          fi
 
       - name: Locate APK
         id: apk
